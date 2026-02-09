@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { useResizer } from './hooks/useResizer';
+import type { editor } from 'monaco-editor';
 import './App.css';
 
 const DEFAULT_TEMPLATE = `#include <iostream>
@@ -26,6 +27,8 @@ function App() {
   const [isCompilerReady, setIsCompilerReady] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const JSCPPRef = useRef<unknown>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<any>(null);
   const { editorWidth, containerRef, handleMouseDown } = useResizer();
 
   // Load templates from localStorage
@@ -181,6 +184,189 @@ function App() {
     setOutputType('');
   };
 
+  const handleResetCode = () => {
+    if (!confirm('Reset code to template? This will discard your current changes.')) return;
+    
+    const templateCode = selectedTemplate === 'default' ? DEFAULT_TEMPLATE : templates[selectedTemplate];
+    if (templateCode) {
+      setCode(templateCode);
+      setOutput('Code reset to template.');
+      setOutputType('');
+    }
+  };
+
+  const handleEditorDidMount = (editor: editor.IStandaloneCodeEditor, monaco: any) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+
+    // Register custom completion provider for variables and functions
+    monaco.languages.registerCompletionItemProvider('cpp', {
+      provideCompletionItems: (model: editor.ITextModel, position: any) => {
+        const textUntilPosition = model.getValueInRange({
+          startLineNumber: 1,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        });
+
+        // Extract variable declarations (int, float, double, char, bool, string, etc.)
+        const variableRegex = /\b(?:int|float|double|char|bool|string|long|short|unsigned|auto|const)\s+(\w+)/g;
+        const variables = new Set<string>();
+        let match;
+
+        while ((match = variableRegex.exec(textUntilPosition)) !== null) {
+          variables.add(match[1]);
+        }
+
+        // Also extract function parameters
+        const paramRegex = /\(([^)]*)\)/g;
+        let paramMatch;
+        while ((paramMatch = paramRegex.exec(textUntilPosition)) !== null) {
+          const params = paramMatch[1].split(',');
+          params.forEach(param => {
+            const paramNameRegex = /\w+$/;
+            const paramNameMatch = paramNameRegex.exec(param.trim());
+            if (paramNameMatch) {
+              variables.add(paramNameMatch[0]);
+            }
+          });
+        }
+
+        // Extract function declarations
+        const functionRegex = /(?:int|float|double|char|bool|string|void|long|short|unsigned|auto)\s+(\w+)\s*\([^)]*\)\s*[{;]/g;
+        const functions = new Map<string, string>();
+        let funcMatch;
+
+        while ((funcMatch = functionRegex.exec(textUntilPosition)) !== null) {
+          const funcName = funcMatch[1];
+          if (funcName !== 'main' && funcName !== 'if' && funcName !== 'while' && funcName !== 'for') {
+            // Extract the full function signature
+            const funcStart = funcMatch.index;
+            const funcSignature = textUntilPosition.substring(funcStart, funcMatch.index + funcMatch[0].length);
+            const signatureMatch = /(\w+\s+\w+\s*\([^)]*\))/.exec(funcSignature);
+            if (signatureMatch) {
+              functions.set(funcName, signatureMatch[1]);
+            }
+          }
+        }
+
+        // Create variable suggestions
+        const variableSuggestions = Array.from(variables).map(varName => ({
+          label: varName,
+          kind: monaco.languages.CompletionItemKind.Variable,
+          insertText: varName,
+          detail: 'declared variable',
+          documentation: `Variable: ${varName}`,
+        }));
+
+        // Create function suggestions
+        const functionSuggestions = Array.from(functions.entries()).map(([funcName, signature]) => {
+          // Extract parameters for snippet
+          const paramsMatch = /\(([^)]*)\)/.exec(signature);
+          const params = paramsMatch ? paramsMatch[1] : '';
+          
+          // Create snippet with parameter placeholders
+          let snippetText = funcName + '(';
+          if (params.trim()) {
+            const paramList = params.split(',').map((p, i) => {
+              const paramName = p.trim().split(/\s+/).pop() || `arg${i + 1}`;
+              return `\${${i + 1}:${paramName}}`;
+            });
+            snippetText += paramList.join(', ');
+          }
+          snippetText += ')';
+
+          return {
+            label: funcName,
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: snippetText,
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            detail: 'declared function',
+            documentation: signature,
+          };
+        });
+
+        // Add common C++ keywords and snippets
+        const cppSuggestions = [
+          {
+            label: 'cout',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'cout << ${1:text} << endl;',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Output to console',
+          },
+          {
+            label: 'cin',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'cin >> ${1:variable};',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Input from console',
+          },
+          {
+            label: 'for',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'for (int ${1:i} = 0; ${1:i} < ${2:n}; ${1:i}++) {\n\t${3}\n}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'For loop',
+          },
+          {
+            label: 'while',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'while (${1:condition}) {\n\t${2}\n}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'While loop',
+          },
+          {
+            label: 'if',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'if (${1:condition}) {\n\t${2}\n}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'If statement',
+          },
+          {
+            label: 'else',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'else {\n\t${1}\n}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Else statement',
+          },
+          {
+            label: 'else if',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'else if (${1:condition}) {\n\t${2}\n}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Else if statement',
+          },
+          {
+            label: 'switch',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'switch (${1:variable}) {\n\tcase ${2:value}:\n\t\t${3}\n\t\tbreak;\n\tdefault:\n\t\t${4}\n}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Switch statement',
+          },
+          {
+            label: 'vector',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'vector<${1:int}> ${2:vec};',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Vector declaration',
+          },
+          {
+            label: 'function',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '${1:int} ${2:functionName}(${3:params}) {\n\t${4}\n\treturn ${5:0};\n}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Function declaration',
+          },
+        ];
+
+        return {
+          suggestions: [...variableSuggestions, ...functionSuggestions, ...cppSuggestions],
+        };
+      },
+    });
+  };
+
   return (
     <div className="app-container" ref={containerRef}>
       <div className="editor-section" style={{ flex: `0 0 ${editorWidth}%` }}>
@@ -215,6 +401,13 @@ function App() {
                   </button>
                   <button 
                     className="menu-item" 
+                    onClick={handleResetCode}
+                    type="button"
+                  >
+                    🔄 Reset to Template
+                  </button>
+                  <button 
+                    className="menu-item" 
                     onClick={handleDeleteTemplate}
                     type="button"
                   >
@@ -239,12 +432,27 @@ function App() {
             theme="vs-dark"
             value={code}
             onChange={(value) => setCode(value || '')}
+            onMount={handleEditorDidMount}
             options={{
               fontSize: 14,
               minimap: { enabled: true },
               scrollBeyondLastLine: false,
               wordWrap: 'on',
               automaticLayout: true,
+              suggestOnTriggerCharacters: true,
+              quickSuggestions: {
+                other: true,
+                comments: false,
+                strings: false,
+              },
+              parameterHints: {
+                enabled: true,
+              },
+              suggest: {
+                showKeywords: true,
+                showSnippets: true,
+                showVariables: true,
+              },
             }}
           />
         </div>

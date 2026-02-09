@@ -7,6 +7,7 @@ A modern, client-side C++ code editor with real-time compilation using WebAssemb
 - **Monaco Editor**: Full-featured code editor (same as VS Code)
   - Syntax highlighting
   - Code suggestions and auto-completion
+  - **Variable suggestions**: Auto-suggests variables you've declared
   - Bracket matching
   - Line numbers
   - Minimap
@@ -19,6 +20,7 @@ A modern, client-side C++ code editor with real-time compilation using WebAssemb
 - **Template Management**:
   - Save custom code templates
   - Load templates from dropdown
+  - **Reset to template**: Restore original template code
   - Delete templates
   - Persistent storage using localStorage
 
@@ -68,7 +70,18 @@ pnpm preview
 
 - **Save Template**: Click the three-dot menu (⋮) → "Save as Template" → Enter a name
 - **Load Template**: Select from the dropdown menu
+- **Reset to Template**: Click the three-dot menu (⋮) → "Reset to Template" → Restores original template code
 - **Delete Template**: Select a template → Click three-dot menu → "Delete Template"
+
+## Variable & Function Auto-Completion
+
+The editor automatically suggests variables and functions you've declared:
+- **Variables**: Type a few letters of a variable name
+- **Functions**: Type a function name and get parameter hints
+- Press `Ctrl+Space` to trigger suggestions
+- Select from the list of declared variables/functions
+- Works with all C++ data types and return types
+- Function suggestions include parameter placeholders
 
 ## Supported C++ Features
 
