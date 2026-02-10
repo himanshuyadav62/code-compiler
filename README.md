@@ -7,6 +7,7 @@ A modern, client-side C++ code editor with real-time compilation using WebAssemb
 - **Monaco Editor**: Full-featured code editor (same as VS Code)
   - Syntax highlighting
   - Code suggestions and auto-completion
+  - **Real-time syntax validation** with Tree-sitter
   - **Variable suggestions**: Auto-suggests variables you've declared
   - Bracket matching
   - Line numbers

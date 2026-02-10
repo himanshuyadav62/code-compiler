@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { useResizer } from './hooks/useResizer';
+import { initializeParser, validateCppSyntax, isParserInitialized } from './utils/syntaxValidator';
 import type { editor } from 'monaco-editor';
 import './App.css';
 
@@ -29,6 +30,7 @@ function App() {
   const JSCPPRef = useRef<unknown>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
   const { editorWidth, containerRef, handleMouseDown } = useResizer();
 
   // Load templates from localStorage
@@ -57,6 +59,23 @@ function App() {
     loadCompiler();
   }, []);
 
+  // Load Tree-sitter parser for syntax validation
+  useEffect(() => {
+    const loadParser = async () => {
+      try {
+        const result = await initializeParser();
+        if (result) {
+          console.log('Tree-sitter parser initialized successfully');
+        } else {
+          console.warn('Tree-sitter parser failed to initialize - syntax validation disabled');
+        }
+      } catch (error) {
+        console.error('Parser load error:', error);
+      }
+    };
+    loadParser();
+  }, []);
+
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -67,6 +86,19 @@ function App() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Keyboard shortcut: Ctrl+' to run code
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "'") {
+        event.preventDefault();
+        handleRunCode();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, input, isCompilerReady, isRunning]);
 
   const saveTemplates = (newTemplates: Template) => {
     localStorage.setItem('cppTemplates', JSON.stringify(newTemplates));
@@ -365,7 +397,40 @@ function App() {
         };
       },
     });
+
+    // Enable syntax validation on change with debounce
+    let debounceTimer: ReturnType<typeof setTimeout>;
+    editor.onDidChangeModelContent(() => {
+      if (isParserInitialized()) {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          validateSyntax();
+        }, 500);
+      }
+    });
+
+    // Initial validation
+    if (isParserInitialized()) {
+      validateSyntax();
+    }
   };
+
+  // Validate C++ syntax using Tree-sitter and show errors inline
+  const validateSyntax = useCallback(() => {
+    if (!editorRef.current || !monacoRef.current || !isParserInitialized()) return;
+
+    const model = editorRef.current.getModel();
+    if (!model) return;
+
+    const code = model.getValue();
+    
+    // Use Tree-sitter for proper syntax analysis
+    const errors = validateCppSyntax(code, monacoRef.current.MarkerSeverity);
+
+    // Set markers in the editor
+    monacoRef.current.editor.setModelMarkers(model, 'cpp', errors);
+    markersRef.current = errors;
+  }, []);
 
   return (
     <div className="app-container" ref={containerRef}>
@@ -421,6 +486,7 @@ function App() {
             className="run-button" 
             onClick={handleRunCode}
             disabled={isRunning || !isCompilerReady}
+            title="Run Code (Ctrl+')"
           >
             {isRunning ? 'Running...' : 'Run Code'}
           </button>
