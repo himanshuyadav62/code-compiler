@@ -16,6 +16,57 @@ interface Template {
   [key: string]: string;
 }
 
+function preprocessCode(code: string): string {
+  const includeRegex = /^\s*#\s*include\s*([<"][^>"]+[>"])/;
+  const macroRegex = /^\s*#\s*define\s+([A-Za-z_]\w*)\s+(.+)$/;
+  const supportedHeaders = new Set([
+    '<bits/stdc++.h>',
+    '<iostream>',
+    '<vector>',
+    '<string>',
+    '<algorithm>',
+    '<map>',
+    '<set>',
+    '<queue>',
+    '<stack>',
+    '<cmath>',
+    '<cstring>',
+  ]);
+
+  const macros = new Map<string, string>();
+  const processedLines: string[] = [];
+
+  for (const line of code.split('\n')) {
+    const includeMatch = includeRegex.exec(line);
+    if (includeMatch) {
+      const header = includeMatch[1];
+      if (supportedHeaders.has(header)) {
+        continue;
+      }
+    }
+
+    const macroMatch = macroRegex.exec(line);
+    if (macroMatch) {
+      const [, macroName, macroValue] = macroMatch;
+      // Ignore function-like macros for now because JSCPP cannot preprocess those reliably.
+      if (!macroName.includes('(')) {
+        macros.set(macroName, macroValue.trim());
+      }
+      continue;
+    }
+
+    processedLines.push(line);
+  }
+
+  let processedCode = processedLines.join('\n');
+  macros.forEach((value, name) => {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    processedCode = processedCode.replace(new RegExp(`\\b${escapedName}\\b`, 'g'), value);
+  });
+
+  return processedCode;
+}
+
 function App() {
   const [code, setCode] = useState(DEFAULT_TEMPLATE);
   const [input, setInput] = useState('');
@@ -177,7 +228,9 @@ function App() {
       let outputText = '';
       const inputData = input.trim();
 
-      const result = await (JSCPPRef.current as { run: (code: string, input: string, options: any) => Promise<number | undefined> }).run(code, inputData, {
+      const executableCode = preprocessCode(code);
+
+      const result = await (JSCPPRef.current as { run: (code: string, input: string, options: any) => Promise<number | undefined> }).run(executableCode, inputData, {
         stdio: {
           write: (s: string) => {
             outputText += s;
